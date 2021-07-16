@@ -1,0 +1,122 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+//Credenciais do Wi-Fi
+const char* ssid = "Henrique e Benycio";
+const char* password = "mesmadesempre";
+
+// Endereço MQTT Broker
+const char* mqtt_server = "kellensu.duckdns.org";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
+
+//Ultrassonico
+int trigPin = 23;    // Trigger
+int echoPin = 22;    // Echo
+long duration, cm, inches;
+
+//potenciometro
+int potPin = 2;
+int ADC_Max = 4096;
+int vall;
+
+void setup() {
+  Serial.begin(115200);
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+
+  
+
+  //Ultrassonico
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+}
+
+void setup_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageTemp;
+  
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+}
+
+void reconnect() {
+
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+
+    if (client.connect("ESP8266Client")) {
+      Serial.println("connected");
+      // Subscribe Broker
+      client.subscribe("output");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  char tensao[8];
+  dtostrf(vall, 1, 2, tensao);
+  
+  vall = analogRead(potPin);
+  vall = map(vall, 0, ADC_Max, 0, 240);
+  Serial.println(vall);
+  client.publish("vall", tensao);
+  delay(200);
+
+  long now = millis();
+  if (now - lastMsg > 5000) {
+    lastMsg = now;
+
+    //Ultrassonico
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(5);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+    pinMode(echoPin, INPUT);
+    duration = pulseIn(echoPin, HIGH);
+    cm = (duration/2) / 29.1;
+    
+    char corrente[8];
+    dtostrf(cm, 1, 2, corrente);
+    Serial.print("HC-SR04: ");
+    Serial.println(cm);
+    client.publish("cm", corrente);
+  }
+}
